@@ -1,0 +1,10 @@
+[ v3_intermediate ]
+basicConstraints = critical, CA:TRUE, pathlen:0
+keyUsage = critical, digitalSignature, cRLSign, keyCertSign
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always,issuer
+nameConstraints = critical, @name_constraints_section
+
+[ name_constraints_section ]
+excluded;URI.1 = unina.com
+excluded;URI.2 = .unina.com
