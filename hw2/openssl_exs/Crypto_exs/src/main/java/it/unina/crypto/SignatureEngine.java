@@ -57,40 +57,61 @@ public class SignatureEngine {
     }
 
     public DSSDocument signPAdES(DSSDocument pdfDocument, Pkcs12SignatureToken token,
-                                 DSSPrivateKeyEntry key, boolean visibleSignature) {
-        PAdESSignatureParameters params = new PAdESSignatureParameters();
-        params.setSignatureLevel(SignatureLevel.PAdES_BASELINE_B);
-        params.setDigestAlgorithm(DigestAlgorithm.SHA256);
-        params.setSigningCertificate(key.getCertificate());
-        params.setCertificateChain(key.getCertificateChain());
-        params.setReason("Documento firmato digitalmente tramite EU DSS");
-        params.setLocation("Pozzuoli / Napoli, IT");
+            DSSPrivateKeyEntry key, boolean visibleSignature) {
+PAdESSignatureParameters params = new PAdESSignatureParameters();
+params.setSignatureLevel(SignatureLevel.PAdES_BASELINE_B);
+params.setDigestAlgorithm(DigestAlgorithm.SHA256);
+params.setSigningCertificate(key.getCertificate());
+params.setCertificateChain(key.getCertificateChain());
+params.setReason("Documento firmato digitalmente tramite EU DSS");
+params.setLocation("Pozzuoli / Napoli, IT");
 
-        if (visibleSignature) {
-            SignatureImageParameters imageParams = new SignatureImageParameters();
-            SignatureFieldParameters fieldParams = new SignatureFieldParameters();
-            fieldParams.setPage(1);
-            fieldParams.setOriginX(50);
-            fieldParams.setOriginY(50);
-            fieldParams.setWidth(220);
-            fieldParams.setHeight(60);
-            imageParams.setFieldParameters(fieldParams);
+if (visibleSignature) {
+SignatureImageParameters imageParams = new SignatureImageParameters();
+SignatureFieldParameters fieldParams = new SignatureFieldParameters();
+fieldParams.setPage(1);
+fieldParams.setOriginX(50);
+fieldParams.setOriginY(50);
+fieldParams.setWidth(220);
+fieldParams.setHeight(60);
+imageParams.setFieldParameters(fieldParams);
 
-            SignatureImageTextParameters textParams = new SignatureImageTextParameters();
-            textParams.setText("Firmato digitalmente da:\n" + key.getCertificate().getSubject().getPrettyPrintRFC2253());
-            textParams.setTextColor(Color.DARK_GRAY);
-            textParams.setBackgroundColor(new Color(240, 244, 248));
-            imageParams.setTextParameters(textParams);
+SignatureImageTextParameters textParams = new SignatureImageTextParameters();
+textParams.setText("Firmato digitalmente da:\n" + key.getCertificate().getSubject().getPrettyPrintRFC2253());
+textParams.setTextColor(Color.DARK_GRAY);
+textParams.setBackgroundColor(new Color(240, 244, 248));
+imageParams.setTextParameters(textParams);
 
-            params.setImageParameters(imageParams);
-        }
+params.setImageParameters(imageParams);
+}
 
-        PAdESService service = new PAdESService(verifier);
-        ToBeSigned dataToSign = service.getDataToSign(pdfDocument, params);
-        SignatureValue signatureValue = token.sign(dataToSign, params.getDigestAlgorithm(), key);
+PAdESService service = new PAdESService(verifier);
 
-        return service.signDocument(pdfDocument, params, signatureValue);
-    }
+// 1. Misura i byte reali della busta CMS PAdES
+params.setContentSize(16384);
+ToBeSigned dummyTbs = service.getDataToSign(pdfDocument, params);
+SignatureValue dummySig = token.sign(dummyTbs, params.getDigestAlgorithm(), key);
+DSSDocument dummySigned = service.signDocument(pdfDocument, params, dummySig);
+
+try (java.io.InputStream is = dummySigned.openStream();
+org.apache.pdfbox.pdmodel.PDDocument pdDoc = org.apache.pdfbox.Loader.loadPDF(is.readAllBytes())) {
+byte[] contents = pdDoc.getSignatureDictionaries().get(0).getContents();
+// Rimuove gli zeri finali (0x00) di padding per ottenere la lunghezza ASN.1 esatta
+int realLength = contents.length;
+while (realLength > 0 && contents[realLength - 1] == 0) {
+realLength--;
+}
+params.setContentSize(realLength);
+} catch (java.io.IOException e) {
+throw new RuntimeException("Errore calcolo dimensione PAdES", e);
+}
+
+// 2. Firma definitiva con contentSize esatto al byte (zero byte di padding)
+ToBeSigned dataToSign = service.getDataToSign(pdfDocument, params);
+SignatureValue signatureValue = token.sign(dataToSign, params.getDigestAlgorithm(), key);
+
+return service.signDocument(pdfDocument, params, signatureValue);
+}
 
     public void verifyDocument(DSSDocument signedDoc, DSSDocument detachedOriginalContent) throws Exception {
         SignedDocumentValidator validator = SignedDocumentValidator.fromDocument(signedDoc);
